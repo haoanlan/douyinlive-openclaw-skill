@@ -5,24 +5,30 @@
 
 const mysql = require('mysql2/promise');
 
-const CONFIG = {
-  host: '1Panel-mysql-aF5P',
-  port: 3306,
-  user: 'douyinlive',
-  password: 'CHANGE_ME',
-  database: 'douyinlive',
+// 数据库配置 — 优先从环境变量读取，否则使用默认值
+const DB_CONFIG = {
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '3306', 10),
+  user: process.env.DB_USER || 'douyinlive',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'douyinlive',
   waitForConnections: true,
-  connectionLimit: 5,
+  connectionLimit: parseInt(process.env.DB_POOL || '5', 10),
   queueLimit: 0,
   timezone: '+08:00'
 };
+
+// 检查密码是否已配置
+if (!DB_CONFIG.password) {
+  console.warn('[db] ⚠️ 数据库密码未配置！请设置环境变量 DB_PASSWORD');
+}
 
 let pool = null;
 
 /** 获取连接池 */
 function getPool() {
   if (!pool) {
-    pool = mysql.createPool(CONFIG);
+    pool = mysql.createPool(DB_CONFIG);
   }
   return pool;
 }
