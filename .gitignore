@@ -1,0 +1,26 @@
+# 敏感配置
+config.yaml
+runtime-config.json
+special_avatars.json
+.env
+
+# 日志
+*.log
+logs/
+
+# 运行时数据
+streamers/
+sessions/
+current_session.json
+monitor.pid
+
+# 报告/调试
+reports/
+gift_debug.log
+gift_monitor.log
+
+# 依赖
+node_modules/
+
+# Git
+.gitignore

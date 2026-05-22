@@ -1,4 +1,20 @@
 #!/usr/bin/env node
+
+// 启动时加载 .env 文件（用于数据库密码等敏感配置）
+try {
+  const fs = require('fs');
+  const envPath = __dirname + '/.env';
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+    for (const line of lines) {
+      const m = line.match(/^\s*([\w_]+)\s*=\s*(.*?)\s*$/);
+      if (m && !process.env[m[1]]) {
+        process.env[m[1]] = m[2].replace(/["']/g, '');
+      }
+    }
+  }
+} catch(e) {/* ignore */}
+
 /**
  * 抖音直播间监控 - 常驻守护脚本
  * 
