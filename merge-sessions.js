@@ -2,10 +2,10 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 
 async function main() {
-  const sessionIds = [220, 221, 222];
+  const sessionIds = [233, 234];
   const conn = await mysql.createConnection({
-    host: '172.18.0.3', port: 3306, user: 'douyinlive',
-    password: 'bYcxn7wFwDjed5jD', database: 'douyinlive',
+    host: process.env.DB_HOST || '1Panel-mysql-aF5P', port: 3306, user: process.env.DB_USER || 'douyinlive',
+    password: process.env.DB_PASSWORD || 'bYcxn7wFwDjed5jD', database: process.env.DB_NAME || 'douyinlive',
     timezone: '+08:00', connectTimeout: 3000
   });
 
@@ -16,7 +16,7 @@ async function main() {
 
   const base = sessions[0];
   const startTime = new Date(base.start_time);
-  const endTime = new Date(sessions[sessions.length - 1].end_time);
+  const endTime = sessions[sessions.length - 1].end_time ? new Date(sessions[sessions.length - 1].end_time) : null;
 
   let allDanmaku = [], allGifts = [], allMembers = [], allOnline = [];
   let totalStatsLike = 0, totalStatsFollow = 0, totalStatsSocial = 0;
@@ -86,7 +86,7 @@ async function main() {
     id: sessions.length === 1 ? base.id : `${sessionIds[0]}-${sessionIds[sessionIds.length-1]}`,
     streamer_id: base.streamer_id,
     start_time: startTime.toISOString(),
-    end_time: endTime.toISOString(),
+    end_time: endTime ? endTime.toISOString() : null,
     room_title: base.room_title,
     room_id: base.room_id,
     room_author: '林语巷',
