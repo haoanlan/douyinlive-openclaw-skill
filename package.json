@@ -1,0 +1,21 @@
+{
+  "name": "douyin-live",
+  "version": "1.0.0",
+  "description": "一个基于 WebSocket 的抖音直播弹幕抓取工具。",
+  "main": "monitor.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mysql2": "^3.22.3",
+    "playwright": "^1.59.1",
+    "ws": "^8.20.0"
+  }
+}
