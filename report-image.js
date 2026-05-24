@@ -350,7 +350,7 @@ function comboDedupGifts(gifts) {
       const curr = items[i];
       const pc = parseInt(String(prev.combo_count || 1), 10);
       const cc = parseInt(String(curr.combo_count || 1), 10);
-      if (cc === pc + 1 || (cc === pc && curr.repeat_end === 1)) {
+      if (cc > pc || (cc === pc && curr.repeat_end === 1)) {
         seq.push(curr);
       } else {
         sequences.push(seq);
