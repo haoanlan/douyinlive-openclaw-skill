@@ -24,3 +24,4 @@ node_modules/
 
 # Git
 .gitignore
+weekly-rank-*.js

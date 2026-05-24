@@ -348,6 +348,57 @@ function extractUser(data) {
   };
 }
 
+// ====== 星守护主播昵称缓存 ======
+const _anchorNameCache = {};
+
+async function resolveAnchorName(anchorId, fallbackName) {
+  if (_anchorNameCache[anchorId]) return { ..._anchorNameCache[anchorId] };
+
+  const SYMB = 'Dkdpgh4ZKsQB80/Mfvw36XI1R25+WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe=';
+  function randomABogus() {
+    let s = 'AG';
+    for (let i = 0; i < 25; i++) s += SYMB[Math.floor(Math.random() * 64)];
+    return s;
+  }
+
+  try {
+    const cookiePath = __dirname + '/config.yaml';
+    let cookie = '';
+    try {
+      const f = require('fs');
+      if (f.existsSync(cookiePath)) {
+        const yaml = f.readFileSync(cookiePath, 'utf-8');
+        const m = yaml.match(/douyin:\s*'([^']+)'/);
+        if (m) cookie = m[1];
+      }
+    } catch(e) {}
+
+    const ab = randomABogus();
+    const url = 'https://www.douyin.com/aweme/v1/web/user/profile/other/?user_id=' + anchorId + '&a_bogus=' + ab;
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Referer': 'https://www.douyin.com/',
+        'Cookie': cookie,
+      }
+    });
+    const data = await resp.json();
+    if (data.status_code === 0 && data.user?.nickname) {
+      const info = {
+        nickname: data.user.nickname,
+        secUid: data.user.sec_uid || '',
+        displayId: data.user.unique_id || '',
+      };
+      _anchorNameCache[anchorId] = info;
+      return { ...info };
+    }
+  } catch(e) {
+    // 查询失败，用 fallback
+  }
+
+  return { nickname: fallbackName || '主播', secUid: '', displayId: '' };
+}
+
 // ====== 消息处理 ======
 function handleMessage(data) {
   const _method = data.common?.method || data.method || data.type || '';
@@ -515,9 +566,58 @@ function handleMessage(data) {
 
     case 'WebcastFansclubMessage': {
       // proto: FansclubMessage { common, action, content, user, upgrade_privilege, left_diamond, public_area_common }
-      // action=1=升级, action=6=非团展示, action=7=星守护状态通知, 其他未知
-      // 所有 action 均不带钻石消费信息，纯状态通知，忽略
+      // action=1=升级, action=2=加入, action=6=非团展示, action=7=星守护开通/续费
+      // action=7 转为礼物记录: 星守护1280钻/月
       lastDataTime = Date.now();
+      if (data.action !== 7) break; // 只处理星守护
+
+      const fcGuard = data.user?.fansClub?.data || {};
+      const anchorId = fcGuard.anchorId;
+      const guardExpired = parseInt(String(fcGuard.guardExpiredTime || '0'), 10);
+      if (!anchorId) break;
+
+      // 判断时长：过期时间和当前时间差额<1年为1个月，>=1年为12个月
+      const nowSec = Math.floor(Date.now() / 1000);
+      const diffDays = guardExpired ? (guardExpired - nowSec) / 86400 : 0;
+      const is12Month = guardExpired && diffDays >= 365;
+      const giftName = is12Month ? '星守护(12个月)' : '星守护(1个月)';
+      const diamondPrice = is12Month ? 1280 * 12 : 1280;
+
+      // 异步查主播信息
+      resolveAnchorName(anchorId, data.livename || '').then(anchor => {
+        const rawUser = data.user || {};
+        const giftRecord = {
+          time: cstISO(),
+          uid: rawUser.id || '',
+          nickname: rawUser.nickname || '匿名',
+          avatar: (rawUser.avatarThumb?.urlList?.[0]) || '',
+          user_display_id: rawUser.displayId || rawUser.id || '',
+          user_sec_uid: rawUser.secUid || '',
+          gift_name: giftName,
+          count: 1,
+          diamond_per_unit: diamondPrice,
+          total_diamonds: diamondPrice,
+          to_nickname: anchor.nickname,
+          to_avatar: '',
+          to_user_display_id: anchor.displayId,
+          to_user_sec_uid: anchor.secUid,
+          traceId: data.common?.msgId || null,
+          comboCount: 1,
+          repeatEnd: 1,
+          groupCount: 1,
+          sendType: 5,
+        };
+        session.gifts.push(giftRecord);
+        session.stats.gift++;
+        if (!stats.giftUsers[rawUser.nickname]) {
+          stats.giftUsers[rawUser.nickname] = { count: 0, totalDiamonds: 0, giftNames: [] };
+        }
+        stats.giftUsers[rawUser.nickname].count += 1;
+        stats.giftUsers[rawUser.nickname].totalDiamonds += diamondPrice;
+        if (!stats.giftUsers[rawUser.nickname].giftNames.includes(giftName)) {
+          stats.giftUsers[rawUser.nickname].giftNames.push(giftName);
+        }
+      }).catch(() => {});
       break;
     }
 
