@@ -5,10 +5,10 @@ const { chromium } = require('playwright');
 const mysql = require('mysql2/promise');
 const path = require('path');
 
-const target = '一颗假头👽林语巷';
+const target = '萱萱🍋🍋🟩🍒🧸🛌林语巷';
 const sessionId = 236;
 const outputDir = path.join(__dirname, 'reports');
-const TARGET_AVATAR = 'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_0c5175240e1c525877a38343d8e93557.jpeg?from=3067671334';
+const TARGET_AVATAR = 'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_oA9suPwIGDIAikDATEQAZAJPjkAIIlTBi8xVT.jpeg?from=3067671334';
 
 async function getData() {
   const pool = mysql.createPool({
@@ -177,7 +177,7 @@ td.name{white-space:nowrap;overflow:hidden;font-weight:700;display:flex;align-it
   <div style="display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,rgba(255,107,157,0.06) 0%,transparent 100%);border-bottom:1px solid rgba(255,255,255,0.06)">
     <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#FF6B9D66,#FFD93D66);display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${TARGET_AVATAR}" style="width:40px;height:40px;border-radius:50%;object-fit:cover" /></div>
     <div style="flex:1;min-width:0">
-      <div style="font-size:18px;font-weight:700;color:#fff;line-height:1.3">一颗假头👽</div>
+      <div style="font-size:18px;font-weight:700;color:#fff;line-height:1.3">萱萱🍋🍋🟩🍒🧸🛌</div>
       <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px">5月23日 周赛 · Session 236</div>
     </div>
     <div style="text-align:right;flex-shrink:0">
@@ -185,7 +185,7 @@ td.name{white-space:nowrap;overflow:hidden;font-weight:700;display:flex;align-it
     </div>
   </div>
   <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.5);padding:14px 24px 6px;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.03)">🔋 园区充电榜 · ${pageLabel}</div>
-  <div style="padding:14px 24px">
+  <div style="padding:14px 24px 32px">
     ${top3Cards}
     ${rest.length > 0 ? `<div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.4);margin:12px 0 6px;letter-spacing:0.5px">🏅 第4-10名</div><table>${restRows}</table>` : ''}
   </div>
@@ -240,7 +240,7 @@ td.name{white-space:nowrap;overflow:hidden;font-weight:700;vertical-align:middle
   <div style="display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,rgba(255,107,157,0.06) 0%,transparent 100%);border-bottom:1px solid rgba(255,255,255,0.06)">
     <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#FF6B9D66,#FFD93D66);display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${TARGET_AVATAR}" style="width:40px;height:40px;border-radius:50%;object-fit:cover" /></div>
     <div style="flex:1;min-width:0">
-      <div style="font-size:18px;font-weight:700;color:#fff;line-height:1.3">一颗假头👽</div>
+      <div style="font-size:18px;font-weight:700;color:#fff;line-height:1.3">萱萱🍋🍋🟩🍒🧸🛌</div>
       <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px">5月23日 周赛 · Session 236</div>
     </div>
     <div style="text-align:right;flex-shrink:0">
@@ -262,9 +262,11 @@ td.name{white-space:nowrap;overflow:hidden;font-weight:700;vertical-align:middle
 
 async function render(html, outPath) {
   const br = await chromium.launch({ headless: true });
-  const page = await br.newPage({ viewport: { width: 600, height: 800 }, deviceScaleFactor: 2 });
+  const page = await br.newPage({ viewport: { width: 600, height: 2000 }, deviceScaleFactor: 2 });
   await page.setContent(html, { waitUntil: 'networkidle' });
-  await page.screenshot({ path: outPath, fullPage: true, type: 'jpeg', quality: 92 });
+  const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
+  const y = Math.max(0, Math.floor((bodyHeight - 800) / 2));
+  await page.screenshot({ path: outPath, clip: { x: 0, y, width: 600, height: 800 }, type: 'jpeg', quality: 92 });
   await br.close();
   console.log(`  ✅ ${path.basename(outPath)}`);
 }
