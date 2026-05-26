@@ -6,6 +6,9 @@
 
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20amd64-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+[查看许可证 →](LICENSE)
 
 ---
 
@@ -191,4 +194,4 @@ node monitor.js
 
 ## License
 
-MIT
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
