@@ -1,6 +1,8 @@
-# 🎥 douyin-live — 抖音直播监控
+# 🎥 douyin-live — 抖音直播数据采集
 
-> 抖音直播间常驻监控 + 自动报告。后台守护进程持续运行，自动检测开播/下播，下播后生成分析报告并通过飞书推送。
+> 🤖 抖音直播间数据采集与可视化分析工具。后台守护进程持续运行，自动检测开播/下播，采集弹幕/礼物/进场数据并生成可视化报告。
+>
+> **⚠️ 本项目仅供学习和研究使用，请勿用于任何商业或非法用途。使用者应遵守相关法律法规及平台规则。**
 
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20amd64-blue)
@@ -185,6 +187,7 @@ node monitor.js
 ## 致谢
 
 - [douyinLive](https://github.com/飘渺/fork) — WebSocket 代理二进制
+- [Learn-Python](https://github.com/fxxk888/Learn-Python) — 粉丝团信息管理工具（灵感参考）
 
 ## License
 
