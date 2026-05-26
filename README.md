@@ -52,8 +52,8 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/haoanlan/douyinlive-openclaw-skill.git
-cd douyinlive-openclaw-skill
+git clone https://github.com/haoanlan/douyin-live-collector.git
+cd douyin-live-collector
 
 # 安装依赖
 npm install
