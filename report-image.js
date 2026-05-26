@@ -313,7 +313,9 @@ function cleanDisplayName(name) {
     }
     i += len;
   }
-  return result.join('');
+  const cleaned = result.join('');
+  // 如果清理后为空（纯表情名字如 👻🔥），保留原始名称
+  return cleaned || name;
 }
 
 /** 生成占位头像 HTML（首字符圆圈）*/

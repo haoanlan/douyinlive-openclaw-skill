@@ -449,6 +449,8 @@ async function close() {
   if (pool) await pool.end();
 }
 
+/** 插入团员榜单/团播排行数据 */
+
 module.exports = {
   init, getPool,
   upsertStreamer, createSession, getCurrentSession, endSession, updateSessionStats,

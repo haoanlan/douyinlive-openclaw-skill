@@ -2,7 +2,7 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 
 async function main() {
-  const sessionIds = [233, 234];
+  const sessionIds = [246, 247, 248];
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST || '1Panel-mysql-aF5P', port: 3306, user: process.env.DB_USER || 'douyinlive',
     password: process.env.DB_PASSWORD || 'bYcxn7wFwDjed5jD', database: process.env.DB_NAME || 'douyinlive',

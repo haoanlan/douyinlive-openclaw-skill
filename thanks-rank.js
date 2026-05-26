@@ -1,306 +1,103 @@
 /**
- * 园区充电榜 v8 — 统一卡片大小 + TOP3 特殊展示(无称号文字) + 标题头修改
+ * 园区充电榜 v13 — 花瓣在 card 内部 + 恢复 3:4
  */
 const { chromium } = require('playwright');
 const mysql = require('mysql2/promise');
+const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const target = '萱萱🍋🍋🟩🍒🧸🛌林语巷';
-const sessionId = 236;
+const sessionIds = [246, 247, 248];
 const outputDir = path.join(__dirname, 'reports');
 const TARGET_AVATAR = 'https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-i-0813_oA9suPwIGDIAikDATEQAZAJPjkAIIlTBi8xVT.jpeg?from=3067671334';
 
-async function getData() {
-  const pool = mysql.createPool({
-    host: process.env.DB_HOST, user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD, database: process.env.DB_NAME,
-    port: process.env.DB_PORT || 3306, timezone: '+08:00',
-    waitForConnections: true, connectionLimit: 5
-  });
-  const [rawGifts] = await pool.query(
-    'SELECT * FROM gifts WHERE session_id=? AND to_nickname=? ORDER BY create_time ASC',
-    [sessionId, target]
-  );
-  pool.end();
-  const groups = {};
-  for (const g of rawGifts) {
-    const key = (g.user_display_id || g.nickname) + '|' + g.gift_name + '|' + (g.to_nickname || '');
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(g);
-  }
-  const deduped = [];
-  for (const items of Object.values(groups)) {
-    items.sort((a, b) => a.create_time - b.create_time);
-    const combos = [];
-    let cur = [items[0]];
-    for (let i = 1; i < items.length; i++) {
-      const p = items[i - 1], c = items[i];
-      const same = (c.combo_count === p.combo_count + 1) || (c.combo_count === p.combo_count && c.repeat_end === 1);
-      if (same) cur.push(c);
-      else { combos.push(cur); cur = [c]; }
-    }
-    combos.push(cur);
-    for (const combo of combos) {
-      let best = combo[0];
-      for (const item of combo) {
-        if (item.combo_count > best.combo_count || (item.combo_count === best.combo_count && item.repeat_end === 1 && best.repeat_end !== 1)) best = item;
-      }
-      deduped.push(best);
-    }
-  }
-  const userMap = {};
-  for (const g of deduped) {
-    const key = g.user_display_id || g.nickname;
-    if (!userMap[key]) userMap[key] = { nickname: g.nickname, displayId: g.user_display_id || '', avatar: g.avatar || '', diamonds: 0 };
-    userMap[key].diamonds += g.total_diamonds;
-    if (g.nickname) userMap[key].nickname = g.nickname;
-    if (g.avatar) userMap[key].avatar = g.avatar;
-  }
-  return Object.values(userMap).sort((a, b) => b.diamonds - a.diamonds).slice(0, 100);
-}
+const DARK_TOKENS = {
+  textPrimary:'rgba(255,255,255,0.9)', textSecondary:'rgba(255,255,255,0.85)', textTertiary:'rgba(255,255,255,0.5)', textMuted:'rgba(255,255,255,0.35)',
+  divider:'rgba(255,255,255,0.04)', dividerSection:'rgba(255,255,255,0.03)', dividerHeader:'rgba(255,255,255,0.06)',
+  cardBg:'rgba(255,255,255,0.07)', cardBorder:'rgba(255,255,255,0.10)', boxShadow:'0 25px 60px rgba(0,0,0,0.5)',
+  badgeFill:'rgba(255,255,255,0.06)', badgeStroke:'rgba(255,255,255,0.15)', badgeTextMuted:'rgba(255,255,255,0.5)',
+  top3Colors:['#FFE44D','#C8C8FF','#E8A060'],
+  top3Borders:['rgba(255,215,0,0.3)','rgba(200,200,255,0.25)','rgba(232,160,96,0.25)'],
+  top3Bgs:['linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,200,0,0.05))','linear-gradient(135deg,rgba(200,200,255,0.12),rgba(200,200,255,0.03))','linear-gradient(135deg,rgba(232,160,96,0.12),rgba(232,160,96,0.03))'],
+  headerTitle:'#fff', headerDate:'rgba(255,255,255,0.35)', sectionTitle:'rgba(255,255,255,0.5)', subsectionLabel:'rgba(255,255,255,0.4)',
+  footerText:'rgba(255,255,255,0.3)', top3Name:'#fff', rowText:'rgba(255,255,255,0.85)',
+  avatarFallbackBg:'rgba(255,255,255,0.08)', avatarFallbackColor:'rgba(255,255,255,0.4)',
+};
+const LIGHT_TOKENS = {
+  textPrimary:'#2D1525', textSecondary:'rgba(45,21,37,0.8)', textTertiary:'rgba(45,21,37,0.5)', textMuted:'rgba(45,21,37,0.35)',
+  divider:'rgba(45,21,37,0.08)', dividerSection:'rgba(45,21,37,0.05)', dividerHeader:'rgba(45,21,37,0.08)',
+  cardBg:'rgba(255,255,255,0.35)', cardBorder:'rgba(45,21,37,0.08)', boxShadow:'0 25px 60px rgba(0,0,0,0.1)',
+  badgeFill:'rgba(45,21,37,0.06)', badgeStroke:'rgba(45,21,37,0.15)', badgeTextMuted:'rgba(45,21,37,0.35)',
+  top3Colors:['#8B6914','#5B4B6B','#7B4123'],
+  top3Borders:['rgba(139,105,20,0.25)','rgba(91,75,107,0.2)','rgba(123,65,35,0.2)'],
+  top3Bgs:['linear-gradient(135deg,rgba(255,215,0,0.1),rgba(255,200,0,0.03))','linear-gradient(135deg,rgba(200,200,255,0.08),rgba(200,200,255,0.02))','linear-gradient(135deg,rgba(232,160,96,0.08),rgba(232,160,96,0.02))'],
+  headerTitle:'#2D1525', headerDate:'rgba(45,21,37,0.4)', sectionTitle:'rgba(45,21,37,0.5)', subsectionLabel:'rgba(45,21,37,0.4)',
+  footerText:'rgba(45,21,37,0.3)', top3Name:'#2D1525', rowText:'rgba(45,21,37,0.8)',
+  avatarFallbackBg:'rgba(45,21,37,0.08)', avatarFallbackColor:'rgba(45,21,37,0.4)',
+};
 
-function cleanDisplayName(name) {
-  if (!name) return name;
-  const result = [];
-  let i = 0;
-  while (i < name.length) {
-    const code = name.codePointAt(i);
-    const len = code > 0xFFFF ? 2 : 1;
-    if (code >= 0x1D400 && code <= 0x1D7FF) {
-      const base = code - 0x1D400;
-      const idx = base % 52;
-      if (idx < 26) result.push(String.fromCharCode(65 + idx));
-      else result.push(String.fromCharCode(97 + idx - 26));
-    } else if ((code >= 0x13000 && code <= 0x1342F) || (code >= 0x1F000 && code <= 0x1FFFF)) {
-    } else {
-      result.push(String.fromCodePoint(code));
-    }
-    i += len;
-  }
-  return result.join("");
-}
+// ==== 花瓣 SVG 装饰（用 data URI，放 card 内避免 clip 问题）====
+const PETALS_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 800">
+  <g fill="#FF85A2">
+    <circle cx="40" cy="60" r="6" opacity="0.5"/><circle cx="500" cy="40" r="5" opacity="0.4"/>
+    <circle cx="20" cy="300" r="7" opacity="0.4"/><circle cx="520" cy="250" r="5" opacity="0.35"/>
+    <circle cx="60" cy="550" r="6" opacity="0.45"/><circle cx="490" cy="600" r="5" opacity="0.4"/>
+    <circle cx="30" cy="750" r="7" opacity="0.4"/><circle cx="510" cy="780" r="5" opacity="0.35"/>
+    <circle cx="270" cy="20" r="4" opacity="0.4"/><circle cx="300" cy="400" r="5" opacity="0.35"/>
+    <circle cx="150" cy="200" r="4" opacity="0.35"/><circle cx="420" cy="350" r="4" opacity="0.3"/>
+    <circle cx="480" cy="500" r="4" opacity="0.35"/><circle cx="80" cy="420" r="4" opacity="0.3"/>
+  </g>
+  <g fill="#F8A5C2" opacity="0.5">
+    <ellipse cx="80" cy="120" rx="9" ry="4" transform="rotate(-25 80 120)"/>
+    <ellipse cx="460" cy="100" rx="8" ry="4" transform="rotate(30 460 100)"/>
+    <ellipse cx="30" cy="400" rx="8" ry="4" transform="rotate(-40 30 400)"/>
+    <ellipse cx="510" cy="450" rx="9" ry="4" transform="rotate(20 510 450)"/>
+    <ellipse cx="180" cy="680" rx="7" ry="3" transform="rotate(-15 180 680)"/>
+    <ellipse cx="350" cy="700" rx="8" ry="4" transform="rotate(35 350 700)"/>
+    <ellipse cx="300" cy="150" rx="8" ry="4" transform="rotate(-10 300 150)"/>
+    <ellipse cx="250" cy="550" rx="7" ry="3" transform="rotate(25 250 550)"/>
+  </g>
+  <g fill="#FFB8D0" opacity="0.45">
+    <ellipse cx="130" cy="350" rx="7" ry="3" transform="rotate(45 130 350)"/>
+    <ellipse cx="380" cy="220" rx="7" ry="3" transform="rotate(-30 380 220)"/>
+    <ellipse cx="70" cy="280" rx="6" ry="3" transform="rotate(55 70 280)"/>
+    <ellipse cx="470" cy="680" rx="7" ry="3" transform="rotate(-20 470 680)"/>
+    <ellipse cx="220" cy="500" rx="8" ry="4" transform="rotate(15 220 500)"/>
+    <ellipse cx="160" cy="620" rx="6" ry="3" transform="rotate(-35 160 620)"/>
+  </g>
+</svg>`;
 
-function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+const petalsB64 = Buffer.from(PETALS_SVG.replace(/\n\s*/g,' ')).toString('base64');
 
-function rankBadge(i) {
-  if (i === 0) return '<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#FFD700"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a0a2e">1</text></svg>';
-  if (i === 1) return '<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#C0C0C0"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a0a2e">2</text></svg>';
-  if (i === 2) return '<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#CD7F32"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">3</text></svg>';
-  const n = i + 1;
-  return `<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="rgba(255,255,255,0.5)">${n}</text></svg>`;
-}
+// Petals overlay INSIDE the card (absolute positioned, z-index 0, opacity low)
+const FLOWER_PETALS = `<img src="data:image/svg+xml;base64,${petalsB64}" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0.18;pointer-events:none;z-index:0;object-fit:cover" />`;
 
-function avatarImg(url, size, extra) {
-  if (!url) return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);font-size:12px;flex-shrink:0;vertical-align:middle;margin-right:8px;${extra||''}">?</span>`;
-  let u = url.startsWith('//') ? 'https:' + url : url;
-  return `<img src="${u}" width="${size}" height="${size}" style="display:inline-block;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:8px;flex-shrink:0;${extra||''}" onerror="this.style.display='none'" />`;
-}
+const DECORATIONS = { blue:'', pink:FLOWER_PETALS, red:'', gold:'', green:'' };
 
-function makeRowHTML(entries) {
-  return entries.map(([rankIdx, s]) => {
-    const displayName = s.name;
-    const isTop3 = rankIdx < 3;
-    const top3cls = isTop3 ? ` class="row-top3 row-${['1st','2nd','3rd'][rankIdx]}"` : '';
-    return `<tr${top3cls}><td class="rank">${rankBadge(rankIdx)}</td><td class="name"><span class="name-wrap">${avatarImg(s.avatar, 22)}<span class="name-text to-text" title="${esc(cleanDisplayName(displayName))}">${esc(cleanDisplayName(displayName))}</span></span></td></tr>`;
-  }).join('');
-}
+const THEMES = {
+  blue:  { name:'暗蓝', bg:'linear-gradient(135deg,#1a0a2e 0%,#16213e 50%,#0f3460 100%)', pattern1:'rgba(108,99,255,0.08)', pattern2:'rgba(255,107,157,0.06)', headerTint:'rgba(255,107,157,0.06)', badgeText:'#1a0a2e', avatarRing:'linear-gradient(135deg,#FF6B9D66,#FFD93D66)', decor:DECORATIONS.blue, ...DARK_TOKENS },
+  pink:  { name:'粉色', bg:'linear-gradient(135deg,#FDDDE5 0%,#F6BEC8 35%,#EBAAB8 100%)', pattern1:'rgba(255,255,255,0.25)', pattern2:'rgba(246,190,200,0.15)', headerTint:'rgba(255,255,255,0.15)', badgeText:'#B88090', avatarRing:'linear-gradient(135deg,rgba(255,255,255,0.5),rgba(255,255,255,0.3))', decor:DECORATIONS.pink, ...LIGHT_TOKENS },
+  red:   { name:'红色', bg:'linear-gradient(135deg,#2e1a1a 0%,#3e1a1a 25%,#2a0f0f 100%)', pattern1:'rgba(255,80,80,0.10)', pattern2:'rgba(255,150,100,0.06)', headerTint:'rgba(255,80,80,0.08)', badgeText:'#2e1a1a', avatarRing:'linear-gradient(135deg,#FF6B9D66,#FFD93D66)', decor:DECORATIONS.red, ...DARK_TOKENS },
+  gold:  { name:'金色', bg:'linear-gradient(135deg,#2e2a1a 0%,#3e2e1a 25%,#2a1a0f 100%)', pattern1:'rgba(255,215,0,0.10)', pattern2:'rgba(255,180,50,0.06)', headerTint:'rgba(255,215,0,0.08)', badgeText:'#2e2a1a', avatarRing:'linear-gradient(135deg,#FFD93D66,#FFD70066)', decor:DECORATIONS.gold, ...DARK_TOKENS },
+  green: { name:'绿色', bg:'linear-gradient(135deg,#1a2e1a 0%,#1a3e1a 25%,#0f2a0f 100%)', pattern1:'rgba(80,255,120,0.08)', pattern2:'rgba(100,200,150,0.06)', headerTint:'rgba(80,255,120,0.06)', badgeText:'#1a2e1a', avatarRing:'linear-gradient(135deg,#6BFF9D66,#6BFF9D66)', decor:DECORATIONS.green, ...DARK_TOKENS },
+};
+const activeTheme = THEMES.blue;
 
-/* 前10图 — TOP3 卡片 + 4-10 列表 */
-function genTop10HTML(users, pageLabel) {
-  const top3 = users.slice(0, 3);
-  const rest = users.slice(3);
-  const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
-  const bgGrads = [
-    'linear-gradient(135deg,rgba(255,215,0,0.15),rgba(255,200,0,0.05))',
-    'linear-gradient(135deg,rgba(200,200,255,0.12),rgba(200,200,255,0.03))',
-    'linear-gradient(135deg,rgba(232,160,96,0.12),rgba(232,160,96,0.03))',
-  ];
-  const borderColors = ['rgba(255,215,0,0.3)', 'rgba(200,200,255,0.25)', 'rgba(232,160,96,0.25)'];
+async function getData(){const pool=mysql.createPool({host:process.env.DB_HOST,user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,port:process.env.DB_PORT||3306,timezone:'+08:00',waitForConnections:true,connectionLimit:5});const[raw]=await pool.query('SELECT * FROM gifts WHERE session_id IN (?) AND to_nickname=? ORDER BY create_time ASC',[sessionIds,target]);pool.end();const groups={};for(const g of raw){const k=(g.user_display_id||g.nickname)+'|'+g.gift_name+'|'+(g.to_nickname||'');if(!groups[k])groups[k]=[];groups[k].push(g);}const deduped=[];for(const items of Object.values(groups)){items.sort((a,b)=>a.create_time-b.create_time);const combos=[];let cur=[items[0]];for(let i=1;i<items.length;i++){const p=items[i-1],c=items[i];const same=(c.combo_count===p.combo_count+1)||(c.combo_count===p.combo_count&&c.repeat_end===1);if(same)cur.push(c);else{combos.push(cur);cur=[c];}}combos.push(cur);for(const combo of combos){let best=combo[0];for(const item of combo){if(item.combo_count>best.combo_count||(item.combo_count===best.combo_count&&item.repeat_end===1&&best.repeat_end!==1))best=item;}deduped.push(best);}}const userMap={};for(const g of deduped){const k=g.user_display_id||g.nickname;if(!userMap[k])userMap[k]={nickname:g.nickname,displayId:g.user_display_id||'',avatar:g.avatar||'',diamonds:0};userMap[k].diamonds+=g.total_diamonds;if(g.nickname)userMap[k].nickname=g.nickname;if(g.avatar)userMap[k].avatar=g.avatar;}return Object.values(userMap).sort((a,b)=>b.diamonds-a.diamonds).slice(0,100);}
+function cleanDisplayName(name){if(!name)return name;const r=[];let i=0;while(i<name.length){const c=name.codePointAt(i);const l=c>0xFFFF?2:1;if(c>=0x1D400&&c<=0x1D7FF){const b=c-0x1D400;const idx=b%52;if(idx<26)r.push(String.fromCharCode(65+idx));else r.push(String.fromCharCode(97+idx-26));}else if((c>=0x13000&&c<=0x1342F)||(c>=0x1F000&&c<=0x1FFFF)){}else{r.push(String.fromCodePoint(c));}i+=l;}const s=r.join('');return s||name;}
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function rankBadge(i){const t=activeTheme;if(i===0)return`<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#FFD700"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="bold" fill="${t.badgeText}">1</text></svg>`;if(i===1)return`<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#C0C0C0"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="bold" fill="${t.badgeText}">2</text></svg>`;if(i===2)return`<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="11" fill="#CD7F32"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">3</text></svg>`;const n=i+1;return`<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="${t.badgeFill}" stroke="${t.badgeStroke}" stroke-width="1"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="${t.badgeTextMuted}">${n}</text></svg>`;}
+function avatarImg(url,size,extra){const t=activeTheme;const ph=`<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${t.avatarFallbackBg};color:${t.avatarFallbackColor};font-size:${Math.round(size*0.45)}px;flex-shrink:0;vertical-align:middle;margin-right:8px;${extra||''}">?</span>`;if(!url)return ph;let u=url.startsWith('//')?'https:'+url:url;const id='av'+Math.random().toString(36).slice(2,8);return`<span id="${id}" style="display:inline-block;vertical-align:middle;margin-right:8px;flex-shrink:0;${extra||''}"><img src="${u}" width="${size}" height="${size}" style="display:block;border-radius:50%;object-fit:cover" onerror="var p=document.getElementById('${id}');if(p){p.outerHTML='<span style=display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${t.avatarFallbackBg};color:${t.avatarFallbackColor};font-size:${Math.round(size*0.45)}px;flex-shrink:0;vertical-align:middle;margin-right:8px;${extra||''}'>?</span>'}" /></span>`;}
 
-  function top3Avatar(url) {
-    if (!url || url === '') return '<span style="display:inline-block;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.08)"></span>';
-    let u = url.startsWith('//') ? 'https:' + url : url;
-    return `<img src="${u}" width="44" height="44" style="display:block;border-radius:50%;object-fit:cover;width:44px;height:44px" onerror="this.style.display='none'" />`;
-  }
-  const top3Cards = top3.map((u, idx) => {
-    return `<div style="display:flex;align-items:center;gap:14px;background:${bgGrads[idx]};border:1px solid ${borderColors[idx]};border-radius:16px;padding:14px 18px;margin-bottom:8px">
-      <div style="width:48px;height:48px;border-radius:50%;background:${colors[idx]}22;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
-        ${top3Avatar(u.avatar)}
-      </div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:17px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cleanDisplayName(u.nickname || '未知'))}</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0;display:flex;align-items:center">
-        ${rankBadge(idx)}
-      </div>
-    </div>`;
-  }).join('\n');
+function genTop10HTML(users,pageLabel){const t=activeTheme;const top3=users.slice(0,3);const rest=users.slice(3);const top3Cards=top3.map((u,idx)=>`<div style="display:flex;align-items:center;gap:14px;background:${t.top3Bgs[idx]};border:1px solid ${t.top3Borders[idx]};border-radius:16px;padding:14px 18px;margin-bottom:8px"><div style="width:48px;height:48px;border-radius:50%;background:${t.badgeFill};display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">${!u.avatar?`<span style="display:inline-block;width:44px;height:44px;border-radius:50%;background:${t.avatarFallbackBg}">`:''}${!u.avatar?'</span>':`<img src="${u.avatar.startsWith('//')?'https:'+u.avatar:u.avatar}" width="44" height="44" style="display:block;border-radius:50%;object-fit:cover;width:44px;height:44px" onerror="this.outerHTML='<span style=display:inline-block;width:44px;height:44px;border-radius:50%;background:${t.avatarFallbackBg};color:${t.avatarFallbackColor};display:flex;align-items:center;justify-content:center;font-size:18px>?</span>'" />`}</div><div style="flex:1;min-width:0"><div style="font-size:17px;font-weight:800;color:${t.top3Name};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cleanDisplayName(u.nickname||'未知'))}</div></div><div style="text-align:right;flex-shrink:0;display:flex;align-items:center">${rankBadge(idx)}</div></div>`).join('\n');const restRows=rest.map(u=>`<tr><td class="rank">${rankBadge(u._rank-1)}</td><td class="name"><span class="name-wrap">${avatarImg(u.avatar,22)}<span class="name-text to-text" title="${esc(cleanDisplayName(u.nickname||'未知'))}">${esc(cleanDisplayName(u.nickname||'未知'))}</span></span></td></tr>`).join('\n');
+return`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><style>@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700;800;900&display=swap');*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;background:${t.bg};min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;position:relative}.bg-pattern{position:fixed;top:0;left:0;width:100%;height:100%;background-image:radial-gradient(circle at 20% 30%,${t.pattern1} 0%,transparent 50%),radial-gradient(circle at 80% 70%,${t.pattern2} 0%,transparent 50%);pointer-events:none}.card{width:540px;max-width:100%;background:${t.cardBg};backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid ${t.cardBorder};border-radius:24px;padding:0;box-shadow:${t.boxShadow};overflow:hidden;position:relative;z-index:2}${t.decor?`.card::after{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background-image:url(data:image/svg+xml;base64,${petalsB64});background-size:cover;opacity:0.18;pointer-events:none;z-index:0}`:''}table{width:100%;border-collapse:collapse;table-layout:fixed}tr{border-bottom:1px solid ${t.divider};height:38px}tr:last-child{border-bottom:none}td{padding:0 6px;font-size:15px;color:${t.rowText};vertical-align:middle!important;line-height:1.55}td.rank{width:34px;text-align:center;font-size:15px;font-weight:600;vertical-align:middle!important;line-height:1}td.name{white-space:nowrap;overflow:hidden;font-weight:700;display:flex;align-items:center;height:38px}.name-wrap{display:contents}.name-text{vertical-align:middle;overflow:hidden;text-overflow:ellipsis;display:inline-block}.to-text{max-width:400px}.footer{text-align:center;padding:10px 24px 14px;font-size:10px;color:${t.footerText};letter-spacing:0.5px}</style></head><body><div class="bg-pattern"></div><div class="card" style="padding:0!important"><div style="display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,${t.headerTint} 0%,transparent 100%);border-bottom:1px solid ${t.dividerHeader}"><div style="width:44px;height:44px;border-radius:50%;background:${t.avatarRing};display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${TARGET_AVATAR}" style="width:40px;height:40px;border-radius:50%;object-fit:cover"/></div><div style="flex:1;min-width:0"><div style="font-size:18px;font-weight:700;color:${t.headerTitle};line-height:1.3">萱萱🍋🍋🟩🍒🧸🛌</div><div style="font-size:12px;color:${t.headerDate};margin-top:4px">5月25-26日 · Session 246-248</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:800;color:${t.textSecondary};letter-spacing:0.5px">🔋 园区充电榜</div></div></div><div style="font-size:13px;font-weight:700;color:${t.sectionTitle};padding:14px 24px 6px;letter-spacing:0.5px;border-bottom:1px solid ${t.dividerSection}">🔋 园区充电榜 · ${pageLabel}</div><div style="padding:14px 24px 32px">${top3Cards}${rest.length>0?`<div style="font-size:12px;font-weight:700;color:${t.subsectionLabel};margin:12px 0 6px;letter-spacing:0.5px">🏅 第4-10名</div><table>${restRows}</table>`:''}</div><div class="footer">由 404 · 抖音直播监控 生成</div></div></body></html>`;}
 
-  const restRows = rest.map(u => {
-    const rankIdx = u._rank - 1;
-    return `<tr><td class="rank">${rankBadge(rankIdx)}</td><td class="name"><span class="name-wrap">${avatarImg(u.avatar, 22)}<span class="name-text to-text" title="${esc(cleanDisplayName(u.nickname||'未知'))}">${esc(cleanDisplayName(u.nickname||'未知'))}</span></span></td></tr>`;
-  }).join('\n');
+function makeRowHTML(entries){return entries.map(([rankIdx,s])=>{const isTop3=rankIdx<3;const top3cls=isTop3?` class="row-top3 row-${['1st','2nd','3rd'][rankIdx]}"`:'';return`<tr${top3cls}><td class="rank">${rankBadge(rankIdx)}</td><td class="name"><span class="name-wrap">${avatarImg(s.avatar,22)}<span class="name-text to-text" title="${esc(cleanDisplayName(s.name))}">${esc(cleanDisplayName(s.name))}</span></span></td></tr>`;}).join('');}
 
-  const theme = { bg: 'linear-gradient(135deg, #1a0a2e 0%, #16213e 50%, #0f3460 100%)' };
+function genHTML(users,pageLabel){const t=activeTheme;const perCol=Math.ceil(users.length/2);const left=users.slice(0,perCol).map(u=>[u._rank-1,{name:u.nickname,avatar:u.avatar}]);const right=users.slice(perCol).map(u=>[u._rank-1,{name:u.nickname,avatar:u.avatar}]);
+return`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><style>@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700;800;900&display=swap');*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;background:${t.bg};min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;position:relative}.bg-pattern{position:fixed;top:0;left:0;width:100%;height:100%;background-image:radial-gradient(circle at 20% 30%,${t.pattern1} 0%,transparent 50%),radial-gradient(circle at 80% 70%,${t.pattern2} 0%,transparent 50%);pointer-events:none}.card{width:540px;max-width:100%;background:${t.cardBg};backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid ${t.cardBorder};border-radius:24px;padding:0;box-shadow:${t.boxShadow};overflow:visible;position:relative;z-index:2}${t.decor?`.card::after{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background-image:url(data:image/svg+xml;base64,${petalsB64});background-size:cover;opacity:0.18;pointer-events:none;z-index:0}`:''}table{width:100%;border-collapse:collapse;table-layout:fixed}tr{border-bottom:1px solid ${t.divider};height:38px}tr:last-child{border-bottom:none}td{padding:0 6px;font-size:15px;color:${t.rowText};vertical-align:middle!important;line-height:1.55}td.rank{width:34px;text-align:center;font-size:15px;font-weight:600;vertical-align:middle!important;line-height:1}.row-1st td.name{color:${t.top3Colors[0]}}.row-2nd td.name{color:${t.top3Colors[1]}}.row-3rd td.name{color:${t.top3Colors[2]}}.row-top3 td{padding:6px 4px;color:${t.top3Name}}td.name{white-space:nowrap;overflow:hidden;font-weight:700;vertical-align:middle!important}.name-wrap{display:inline-flex;align-items:center;gap:4px;height:100%}.name-text{vertical-align:middle;overflow:hidden;text-overflow:ellipsis;display:inline-block}.to-text{max-width:180px}.ranking-grid{display:grid;gap:10px;padding:0}.ranking-col td{padding:0 4px;font-size:15px;vertical-align:middle!important;height:38px}.ranking-col td.rank{width:30px;font-size:15px;vertical-align:middle!important;text-align:center;line-height:1}.ranking-col td.name{white-space:nowrap;overflow:hidden;font-size:15px;display:flex;align-items:center}.ranking-col td.name .name-wrap{display:contents}.ranking-col .name-text{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}.ranking-col .row-top3 td{padding:0 4px}.footer{text-align:center;padding:10px 24px 14px;font-size:10px;color:${t.footerText};letter-spacing:0.5px}</style></head><body><div class="bg-pattern"></div><div class="card" style="padding:0!important"><div style="display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,${t.headerTint} 0%,transparent 100%);border-bottom:1px solid ${t.dividerHeader}"><div style="width:44px;height:44px;border-radius:50%;background:${t.avatarRing};display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${TARGET_AVATAR}" style="width:40px;height:40px;border-radius:50%;object-fit:cover"/></div><div style="flex:1;min-width:0"><div style="font-size:18px;font-weight:700;color:${t.headerTitle};line-height:1.3">萱萱🍋🍋🟩🍒🧸🛌</div><div style="font-size:12px;color:${t.headerDate};margin-top:4px">5月25-26日 · Session 246-248</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:800;color:${t.textSecondary};letter-spacing:0.5px">🔋 园区充电榜</div></div></div><div style="font-size:13px;font-weight:700;color:${t.sectionTitle};padding:14px 24px 6px;letter-spacing:0.5px;border-bottom:1px solid ${t.dividerSection}">🔋 园区充电榜 · ${pageLabel}</div><div style="padding:6px 24px 14px"><div class="ranking-grid" style="grid-template-columns:1fr 1fr;gap:10px"><div class="ranking-col"><table style="width:100%;table-layout:fixed"><tbody>${makeRowHTML(left)}</tbody></table></div><div class="ranking-col"><table style="width:100%;table-layout:fixed"><tbody>${makeRowHTML(right)}</tbody></table></div></div></div><div class="footer">由 404 · 抖音直播监控 生成</div></div></body></html>`;}
 
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700;800;900&display:swap');
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;background:${theme.bg};min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px}
-.bg-pattern{position:fixed;top:0;left:0;width:100%;height:100%;background-image:radial-gradient(circle at 20% 30%,rgba(108,99,255,0.08) 0%,transparent 50%),radial-gradient(circle at 80% 70%,rgba(255,107,157,0.06) 0%,transparent 50%);pointer-events:none}
-.card{width:540px;max-width:100%;background:rgba(255,255,255,0.07);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.10);border-radius:24px;padding:0;box-shadow:0 25px 60px rgba(0,0,0,0.5);overflow:hidden;position:relative}
-table{width:100%;border-collapse:collapse;table-layout:fixed}
-tr{border-bottom:1px solid rgba(255,255,255,0.04);height:38px}
-tr:last-child{border-bottom:none}
-td{padding:0 6px;font-size:15px;color:rgba(255,255,255,0.85);vertical-align:middle!important;line-height:1.55}
-td.rank{width:34px;text-align:center;font-size:15px;font-weight:600;vertical-align:middle!important;line-height:1}
-td.name{white-space:nowrap;overflow:hidden;font-weight:700;display:flex;align-items:center;height:38px}
-.name-wrap{display:contents}
-.name-text{vertical-align:middle;overflow:hidden;text-overflow:ellipsis;display:inline-block}
-.to-text{max-width:400px}
-.ranking-grid{display:grid;gap:10px;padding:0}
-.ranking-col td{padding:0 4px;font-size:15px;vertical-align:middle!important;height:38px}
-.ranking-col td.rank{width:30px;font-size:15px;text-align:center;vertical-align:middle!important;line-height:1}
-.ranking-col td.name{white-space:nowrap;overflow:hidden;font-size:15px;display:flex;align-items:center;height:38px}
-.ranking-col td.name .name-wrap{display:contents}
-.ranking-col .name-text{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.footer{text-align:center;padding:10px 24px 14px;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.5px}
-</style>
-</head>
-<body>
-<div class="bg-pattern"></div>
-<div class="card" style="padding:0!important">
-  <div style="display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,rgba(255,107,157,0.06) 0%,transparent 100%);border-bottom:1px solid rgba(255,255,255,0.06)">
-    <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#FF6B9D66,#FFD93D66);display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${TARGET_AVATAR}" style="width:40px;height:40px;border-radius:50%;object-fit:cover" /></div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:18px;font-weight:700;color:#fff;line-height:1.3">萱萱🍋🍋🟩🍒🧸🛌</div>
-      <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px">5月23日 周赛 · Session 236</div>
-    </div>
-    <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:15px;font-weight:800;color:rgba(255,255,255,0.85);letter-spacing:0.5px">🔋 园区充电榜</div>
-    </div>
-  </div>
-  <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.5);padding:14px 24px 6px;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.03)">🔋 园区充电榜 · ${pageLabel}</div>
-  <div style="padding:14px 24px 32px">
-    ${top3Cards}
-    ${rest.length > 0 ? `<div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.4);margin:12px 0 6px;letter-spacing:0.5px">🏅 第4-10名</div><table>${restRows}</table>` : ''}
-  </div>
-  <div class="footer">由 404 · 抖音直播监控 生成</div>
-</div>
-</body>
-</html>`;
-}
-
-/* 后3张 — 双列表格 */
-function genHTML(users, pageLabel) {
-  const perCol = Math.ceil(users.length / 2);
-  const left = users.slice(0, perCol).map(u => [u._rank - 1, { name: u.nickname, avatar: u.avatar }]);
-  const right = users.slice(perCol).map(u => [u._rank - 1, { name: u.nickname, avatar: u.avatar }]);
-
-  const theme = { bg: 'linear-gradient(135deg, #1a0a2e 0%, #16213e 50%, #0f3460 100%)' };
-
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700;800;900&display=swap');
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;background:${theme.bg};min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px}
-.bg-pattern{position:fixed;top:0;left:0;width:100%;height:100%;background-image:radial-gradient(circle at 20% 30%,rgba(108,99,255,0.08) 0%,transparent 50%),radial-gradient(circle at 80% 70%,rgba(255,107,157,0.06) 0%,transparent 50%);pointer-events:none}
-.card{width:540px;max-width:100%;background:rgba(255,255,255,0.07);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.10);border-radius:24px;padding:0;box-shadow:0 25px 60px rgba(0,0,0,0.5);overflow:hidden;position:relative}
-table{width:100%;border-collapse:collapse;table-layout:fixed}
-tr{border-bottom:1px solid rgba(255,255,255,0.04);height:38px}
-tr:last-child{border-bottom:none}
-td{padding:0 6px;font-size:15px;color:rgba(255,255,255,0.85);vertical-align:middle!important;line-height:1.55}
-td.rank{width:34px;text-align:center;font-size:15px;font-weight:600;vertical-align:middle!important;line-height:1}
-.row-1st td.name{color:#FFE44D}.row-2nd td.name{color:#C8C8FF}.row-3rd td.name{color:#E8A060}
-.row-top3 td{padding:6px 4px;color:#fff}
-td.name{white-space:nowrap;overflow:hidden;font-weight:700;vertical-align:middle!important}
-.name-wrap{display:inline-flex;align-items:center;gap:4px;height:100%}
-.name-text{vertical-align:middle;overflow:hidden;text-overflow:ellipsis;display:inline-block}
-.to-text{max-width:180px}
-.ranking-grid{display:grid;gap:10px;padding:0}
-.ranking-col td{padding:0 4px;font-size:15px;vertical-align:middle!important;height:38px}
-.ranking-col td.rank{width:30px;font-size:15px;vertical-align:middle!important;text-align:center;line-height:1}
-.ranking-col td.name{white-space:nowrap;overflow:hidden;font-size:15px;display:flex;align-items:center}
-.ranking-col td.name .name-wrap{display:contents}
-.ranking-col .name-text{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.ranking-col .row-top3 td{padding:0 4px}
-.footer{text-align:center;padding:10px 24px 14px;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.5px}
-</style>
-</head>
-<body>
-<div class="bg-pattern"></div>
-<div class="card" style="padding:0!important">
-  <div style="display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,rgba(255,107,157,0.06) 0%,transparent 100%);border-bottom:1px solid rgba(255,255,255,0.06)">
-    <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#FF6B9D66,#FFD93D66);display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${TARGET_AVATAR}" style="width:40px;height:40px;border-radius:50%;object-fit:cover" /></div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:18px;font-weight:700;color:#fff;line-height:1.3">萱萱🍋🍋🟩🍒🧸🛌</div>
-      <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px">5月23日 周赛 · Session 236</div>
-    </div>
-    <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:15px;font-weight:800;color:rgba(255,255,255,0.85);letter-spacing:0.5px">🔋 园区充电榜</div>
-    </div>
-  </div>
-  <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.5);padding:14px 24px 6px;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.03)">🔋 园区充电榜 · ${pageLabel}</div>
-  <div style="padding:6px 24px 14px">
-    <div class="ranking-grid" style="grid-template-columns:1fr 1fr;gap:10px">
-      <div class="ranking-col"><table style="width:100%;table-layout:fixed"><tbody>${makeRowHTML(left)}</tbody></table></div>
-      <div class="ranking-col"><table style="width:100%;table-layout:fixed"><tbody>${makeRowHTML(right)}</tbody></table></div>
-    </div>
-  </div>
-  <div class="footer">由 404 · 抖音直播监控 生成</div>
-</div>
-</body>
-</html>`;
-}
-
-async function render(html, outPath) {
-  const br = await chromium.launch({ headless: true });
-  const page = await br.newPage({ viewport: { width: 600, height: 2000 }, deviceScaleFactor: 2 });
-  await page.setContent(html, { waitUntil: 'networkidle' });
-  const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
-  const y = Math.max(0, Math.floor((bodyHeight - 800) / 2));
-  await page.screenshot({ path: outPath, clip: { x: 0, y, width: 600, height: 800 }, type: 'jpeg', quality: 92 });
-  await br.close();
-  console.log(`  ✅ ${path.basename(outPath)}`);
-}
-
-async function main() {
-  console.log('📊 Loading data...');
-  const users = await getData();
-  console.log(`  ${users.length} users`);
-  const total = users.slice(0, 100);
-  total.forEach((u, i) => u._rank = i + 1);
-  console.log(`  Total: ${total.length} users`);
-
-  const n = total.length;
-  const topN = Math.min(10, n);
-  const restCount = n - topN;
-  const perPage = Math.ceil(restCount / 3);
-
-  console.log('🖼️  Image 1/4 (TOP ' + topN + ')...');
-  await render(genTop10HTML(total.slice(0, topN), 'TOP ' + topN), path.join(outputDir, 'thanks_rank_p1.jpg'));
-
-  const pages = [
-    { start: topN, end: Math.min(topN + perPage, n), label: `第${topN+1}-${Math.min(topN+perPage, n)}名` },
-    { start: Math.min(topN + perPage, n), end: Math.min(topN + perPage*2, n), label: `第${Math.min(topN+perPage, n)+1}-${Math.min(topN + perPage*2, n)}名` },
-    { start: Math.min(topN + perPage*2, n), end: n, label: `第${Math.min(topN + perPage*2, n)+1}-${n}名` },
-  ];
-
-  for (let i = 0; i < 3; i++) {
-    const p = pages[i];
-    if (p.start >= p.end) continue;
-    console.log(`🖼️  Image ${i+2}/4 (${p.label})...`);
-    await render(genHTML(total.slice(p.start, p.end), p.label),
-      path.join(outputDir, `thanks_rank_p${i+2}.jpg`));
-  }
-  console.log('\n✅ Done!');
-}
-
-main().catch(e => { console.error(e); process.exit(1); });
+async function render(html,outPath){const br=await chromium.launch({headless:true});const page=await br.newPage({viewport:{width:600,height:2000},deviceScaleFactor:2});await page.setContent(html,{waitUntil:'domcontentloaded',timeout:30000});await new Promise(r=>setTimeout(r,3000));const bodyHeight=await page.evaluate(()=>document.body.scrollHeight);const y=Math.max(0,Math.floor((bodyHeight-800)/2));await page.screenshot({path:outPath,clip:{x:0,y,width:600,height:800},type:'jpeg',quality:92});await br.close();console.log(`  ✅ ${path.basename(outPath)}`);}
+async function main(){console.log('📊 Loading data...');const users=await getData();console.log(`  ${users.length} users`);const total=users.slice(0,100);total.forEach((u,i)=>u._rank=i+1);const n=total.length;const topN=Math.min(10,n);const restCount=n-topN;const perPage=Math.ceil(restCount/3);console.log('🖼️  Image 1/4 (TOP '+topN+')...');await render(genTop10HTML(total.slice(0,topN),'TOP '+topN),path.join(outputDir,'thanks_rank_p1.jpg'));const pages=[{start:topN,end:Math.min(topN+perPage,n),label:`第${topN+1}-${Math.min(topN+perPage,n)}名`},{start:Math.min(topN+perPage,n),end:Math.min(topN+perPage*2,n),label:`第${Math.min(topN+perPage,n)+1}-${Math.min(topN+perPage*2,n)}名`},{start:Math.min(topN+perPage*2,n),end:n,label:`第${Math.min(topN+perPage*2,n)+1}-${n}名`}];for(let i=0;i<3;i++){const p=pages[i];if(p.start>=p.end)continue;console.log(`🖼️  Image ${i+2}/4 (${p.label})...`);await render(genHTML(total.slice(p.start,p.end),p.label),path.join(outputDir,`thanks_rank_p${i+2}.jpg`));}console.log('\n✅ Done!');}
+main().catch(e=>{console.error(e);process.exit(1);});

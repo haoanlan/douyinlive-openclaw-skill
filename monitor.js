@@ -42,6 +42,13 @@ const feishu = require('./feishu-send.js');
 const DATA_DIR = __dirname;
 const PID_FILE = path.join(DATA_DIR, 'monitor.pid');
 const CONFIG_FILE = path.join(DATA_DIR, 'runtime-config.json');
+const LOG_FILE = path.join(DATA_DIR, 'logs', 'daemon.log');
+
+// 日志输出到文件
+const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+const origLog = console.log, origErr = console.error;
+console.log = (...args) => { const s = args.join(' '); origLog(s); logStream.write(`[${new Date().toISOString()}] ${s}\n`); };
+console.error = (...args) => { const s = args.join(' '); origErr(s); logStream.write(`[${new Date().toISOString()}] ERROR ${s}\n`); };
 
 // session 目录：默认根目录，知道主播名后切换到 <主播名>/ 子目录
 let SESSION_DIR = DATA_DIR;
@@ -691,7 +698,6 @@ function handleMessage(data) {
                   session.toUserAvatars[u.nick_name] = u.avatar;
                 }
               }
-              // rl_user_base_info_v2 是嵌套格式
               const v2 = payload.rl_user_base_info_v2 || [];
               for (const team of v2) {
                 const teamUsers = team.rl_user_base_info || [];
@@ -766,7 +772,7 @@ function startBinary() {
   const binaryPath = __dirname + '/douyinLive-linux-amd64';
   console.log('[binary] 启动 douyinLive 代理...');
   try {
-    binaryProcess = spawn(binaryPath, ['--unknown'], { cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'] });
+    binaryProcess = spawn(binaryPath, ['--unknown', '--log-level', 'debug'], { cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'] });
     const binaryLogFile = path.join(__dirname, 'binary_output.log');
     const binaryLogStream = fs.createWriteStream(binaryLogFile, { flags: 'a' });
     binaryProcess.stdout.pipe(binaryLogStream);
@@ -825,9 +831,9 @@ function startConnection(roomId, config) {
     // WS 消息日志已关闭
 
     try {
-      // 🔧 临时：原始 WS 消息全量 dump（删除这行即停）
+      // WS dump: 只记录关键消息类型
       const str = raw.toString();
-      if (str.includes('Fansclub') || str.includes('ScreenChat') || str.includes('HotChat')) {
+      if (str.includes('Fansclub') || str.includes('ScreenChat') || str.includes('HotChat') || str.includes('GroupLiveContainer')) {
         require('fs').appendFileSync(__dirname + '/reports/ws_dump.jsonl', str + '\n', 'utf8');
       }
       const data = JSON.parse(str);
